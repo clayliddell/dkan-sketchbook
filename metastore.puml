@@ -21,22 +21,17 @@ class SchemaRetriever {
     +getAllIds()
 }
 
-interface MetadataRetrieverInterface {
+interface MetadataRepositoryInterface {
+    ""dkan.metastore.metadata_repository""
+    +save(**MetastoreItemInterface** $item)
+    +delete(**string** $identifier)
+    +publish(**string** $identifier)
     +getAllIds(): **string[]**
     +load(string $schemaId, string $identifier[...]): **MetastoreItemInterface**
     +loadMultiple(string $schemaId[...]): **MetastoreItemInterface[]**
     +loadContains($string): **MetastoreItemNode**[]
     +loadByHash(string $hash): **MetastoreItemInterface**
     +catalog()
-}
-
-class MetadataWriter {
-    ""dkan.metastore.metadata_writer""
-    +create($data)
-    +merge(string $identifier, $data)
-    +replace(string $identifier, $data)
-    +delete(string $identifier)
-    +publish(string $identifier)
 }
 
 
@@ -61,7 +56,7 @@ note left of MetastoreItemInterface::__to_string
 end note
 
 interface MetastoreItemFactoryInterface {
-    {static} +wrap(**Drupal\core\Entity** $entity): **MetastoreItemInterface**
+    {static} +build(**string** $schemaId, **string** $data): **MetastoreItemInterface**
 }
 
 note bottom
@@ -85,16 +80,11 @@ namespace ItemNode {
         {inherited}
     }
 
-    class ItemNodeRetriever implements .MetadataRetrieverInterface {
-        ""dkan.metastore.metadata_retriever""
+    class ItemNodeRepository implements .MetadataRepositoryInterface, .MetastoreItemFactoryInterface {
+        ""dkan.metastore.metadata_repository""
     }
 
-    class ItemNodeFactory implements .MetastoreItemFactoryInterface {
-        ""dkan.metastore.item_factory""
-        {static} +wrap(**Drupal\\node\Node** $node): **ItemNode**
-    }
-
-} 
+}
 
 Controller.MetastoreController --> SchemaRetriever
 
@@ -102,7 +92,7 @@ note as RetrieverNote
     MetadataRetriever methods pass ""MetastoreItemInterface""
     objects, which can be easily cast to strings, back to the controller. 
 end note
-ItemNode.ItemNodeRetriever *-- RetrieverNote
+ItemNode.ItemNodeRepository *-- RetrieverNote
 RetrieverNote --> Controller.MetastoreController
 
 note as RetrieverServiceNote
@@ -110,18 +100,18 @@ note as RetrieverServiceNote
     ""dkan.metastore.metadata_retriever""
 end note
 Controller.MetastoreController *-- RetrieverServiceNote
-RetrieverServiceNote --> ItemNode.ItemNodeRetriever
+RetrieverServiceNote --> ItemNode.ItemNodeRepository
 
 note as WriterServiceNote
     Controller writer (patch, put etc) methods 
     call ""dkan.metastore.metadata_retriever""
 end note
 Controller.MetastoreController *-- WriterServiceNote
-WriterServiceNote --> MetadataWriter
+WriterServiceNote --> ItemNode.ItemNodeRepository
 
 
 note as WriterNote
-    MetadataWriter post/patch/put methods load single
+    ItemNode.ItemNodeRepository post/patch/put methods load single
     MetastoreItem objects and call //their// methods directly. 
     For a ""replace()"", this could look like:
 
@@ -134,7 +124,7 @@ note as WriterNote
     return $dataset->setMetadata($newMetadata);
     </code>
 end note
-MetadataWriter *-- WriterNote
+ItemNode.ItemNodeRepository *-- WriterNote
 WriterNote --> MetastoreItemInterface
 
 ' WriterNote -[hidden]> RetrieverStorageNote
