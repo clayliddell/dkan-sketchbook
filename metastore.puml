@@ -14,152 +14,95 @@ namespace Controller {
     }
 }
 
-package "(root services)" <<Rectangle>> {
-    class SchemaRetriever {
-        ""dkan.metastore.schema_retriever""
-        +get($schemaId)
-        +getAll()
-        +getAllIds()
-    }
-
-    class MetadataRetriever {
-        ""dkan.metastore.metadata_retriever""
-        +getAllIds(): **string[]**
-        +get(string $schemaId, string $identifier[...]): **MetastoreItemInterface**
-        +getAll(string $schemaId[...]): **MetastoreItemInterface[]**
-        +catalog()
-    }
-
-    class MetadataWriter {
-        ""dkan.metastore.metadata_writer""
-        +create($data)
-        +merge(string $identifier, $data)
-        +replace(string $identifier, $data)
-        +delete(string $identifier)
-        +publish(string $identifier)
-    }
+class SchemaRetriever {
+    ""dkan.metastore.schema_retriever""
+    +get($schemaId)
+    +getAll()
+    +getAllIds()
 }
 
-namespace Storage {
-    interface MetastoreItemStorageFactoryInterface {
-        +getInstance(string $schemaId): **MetastoreItemStorageInterface**
-    }
-
-    class ItemNodeStorageFactory implements MetastoreItemStorageFactoryInterface {
-        ""dkan.metastore.storage""
-        +getInstance(string $schemaId): **ItemNodeStorage**
-    }
-
-    interface MetastoreItemStorageInterface {
-        #$schemaId
-        +query(): **Drupal::entityQuery**
-        +getSchemaId(): string
-        +load(string $identifier): **MetastoreItemInterface**
-        +loadByHash(string $hash)
-        +identifiers(): string[]
-        +loadContains($string): **MetastoreItemNode**[]
-        +loadMultiple(): **MetastoreItemNode**[]
-        +delete($identifier)
-        +createItem(string $metadata): **MetastoreItemInterface**
-        +count(): int
-    }
-
-    class ItemNodeStorage implements MetastoreItemStorageInterface {
-        +__construct($schemaId)
-        #$entityTypeId
-        #$bundle
-        #$metadataField
-        #$schemaIdField
-        #$metadataHashField
-        +load(string $identifier): **ItemNode**
-        +query(): **Drupal::entityQuery**
-        +loadMultiple(): **ItemNode**[]
-        ---
-        {inherited}
-    }
-
-    note as StorageNote
-        A storage object is specific to a schema
-        (e.g. "dataset"). It is instantiated with
-        ""dkan.metastore.storage"".
-    end note
-    ' ItemNodeStorageFactory --> StorageNote
-    StorageNote --> ItemNodeStorage
-    ItemNodeStorageFactory --> ItemNodeStorage : Storage factory creates \n storage object
+interface MetadataRetrieverInterface {
+    +getAllIds(): **string[]**
+    +load(string $schemaId, string $identifier[...]): **MetastoreItemInterface**
+    +loadMultiple(string $schemaId[...]): **MetastoreItemInterface[]**
+    +loadContains($string): **MetastoreItemNode**[]
+    +loadByHash(string $hash): **MetastoreItemInterface**
+    +catalog()
 }
-namespace MetastoreItem {
-    interface MetastoreItemInterface {
-        #$referenced **RootedJsonData**
-        #$dereferenced **RootedJsonData**
-        +__to_string()
-        +identifier()
-        +schemaId()
-        +modified()
-        +getReferenced(): **RootedJsonData**
-        +getDereferenced(): **RootedJsonData**
-        +setMetadata($data): **bool**
-        +replace($json)
-        +merge($json)
-    }
-    note left of MetastoreItemInterface::__to_string
-        wrapper for
-        <code>
-        $this->getDereferenced()
-          ->__to_string();
-    end note
 
-    class ItemNode implements MetastoreItemInterface {
+class MetadataWriter {
+    ""dkan.metastore.metadata_writer""
+    +create($data)
+    +merge(string $identifier, $data)
+    +replace(string $identifier, $data)
+    +delete(string $identifier)
+    +publish(string $identifier)
+}
+
+
+interface MetastoreItemInterface {
+    #$referenced **RootedJsonData**
+    #$dereferenced **RootedJsonData**
+    +__to_string()
+    +identifier()
+    +schemaId()
+    +modified()
+    +getReferenced(): **RootedJsonData**
+    +getDereferenced(): **RootedJsonData**
+    +setMetadata($data): **bool**
+    +replace($json)
+    +merge($json)
+}
+note left of MetastoreItemInterface::__to_string
+    wrapper for
+    <code>
+    $this->getDereferenced()
+        ->__to_string();
+end note
+
+interface MetastoreItemFactoryInterface {
+    {static} +wrap(**Drupal\core\Entity** $entity): **MetastoreItemInterface**
+}
+
+note bottom
+    Used in contexts where we have an entity object but don't know
+    the schemaId. For instance, in an entity update or insert hook:
+
+    <code>
+    function hook_entity_update($entity) {
+        $metastoreItem = \Drupal::service('dkan.metastore.item_factory')
+        ->wrap($entity);
+        $schemaId = $metastoreItem->schemaId();
+    }
+    </code>
+end note
+
+namespace ItemNode {
+
+    class ItemNode implements .MetastoreItemInterface {
         #$node
         ---
         {inherited}
     }
 
-    interface MetastoreItemFactoryInterface {
-        {static} +wrap(**Drupal\core\Entity** $entity): **MetastoreItemInterface**
+    class ItemNodeRetriever implements .MetadataRetrieverInterface {
+        ""dkan.metastore.metadata_retriever""
     }
 
-    class ItemNodeFactory implements MetastoreItemFactoryInterface {
+    class ItemNodeFactory implements .MetastoreItemFactoryInterface {
         ""dkan.metastore.item_factory""
         {static} +wrap(**Drupal\\node\Node** $node): **ItemNode**
     }
 
-    note bottom
-        Used in contexts where we have an entity object but don't know
-        the schemaId. For instance, in an entity update or insert hook:
-
-        <code>
-        function hook_entity_update($entity) {
-          $metastoreItem = \Drupal::service('dkan.metastore.item_factory')
-            ->wrap($entity);
-          $schemaId = $metastoreItem->schemaId();
-        }
-        </code>
-    end note
-}
-
-MetastoreItem.ItemNode <-- Storage.ItemNodeStorage : Storage object loads \n& returns item objects
+} 
 
 Controller.MetastoreController --> SchemaRetriever
 
 note as RetrieverNote
-    MetadataRetriever methods pass objects that can be cast to
-    strings back to the controller. For ""getItem()"" this could look like:
-
-    <code>
-    /* @var string $identifier */
-    $dataset = \Drupal::service('dkan.metastore.storage')
-      ->getInstance('dataset')
-      ->load($identifier);
-    return $this->apiResponse->cachedJsonResponse($dataset);
-    </code>
-
-    If we passed the ""show-reference-ids"" argument:
-
-    <code>
-    return $this->apiResponse
-        ->cachedJsonResponse($dataset->getReferenced());
+    MetadataRetriever methods pass ""MetastoreItemInterface""
+    objects, which can be easily cast to strings, back to the controller. 
 end note
-MetadataRetriever *-- RetrieverNote
+ItemNode.ItemNodeRetriever *-- RetrieverNote
 RetrieverNote --> Controller.MetastoreController
 
 note as RetrieverServiceNote
@@ -167,22 +110,7 @@ note as RetrieverServiceNote
     ""dkan.metastore.metadata_retriever""
 end note
 Controller.MetastoreController *-- RetrieverServiceNote
-RetrieverServiceNote --> MetadataRetriever
-
-note as RetrieverStorageNote
-    MertadataRetriever methods will instantiate a storage object and
-    use it to retrieve one or several //items//. For a ""get()"", this
-    could look like:
-    
-    <code>
-    /* @var string $identifier */
-    return \Drupal::service('dkan.metastore.storage')
-      ->getInstance('dataset')
-      ->load($identifier);
-    </code>
-end note
-MetadataRetriever *-- RetrieverStorageNote
-RetrieverStorageNote -->Storage.MetastoreItemStorageFactoryInterface
+RetrieverServiceNote --> ItemNode.ItemNodeRetriever
 
 note as WriterServiceNote
     Controller writer (patch, put etc) methods 
@@ -207,8 +135,8 @@ note as WriterNote
     </code>
 end note
 MetadataWriter *-- WriterNote
-WriterNote --> MetastoreItem.MetastoreItemInterface
+WriterNote --> MetastoreItemInterface
 
-WriterNote -[hidden]> RetrieverStorageNote
-RetrieverNote -[hidden]> Controller
+' WriterNote -[hidden]> RetrieverStorageNote
+' RetrieverNote -[hidden]> Controller
 @enduml
